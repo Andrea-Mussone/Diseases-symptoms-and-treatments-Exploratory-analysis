@@ -20,7 +20,7 @@ library(caret)
 
 #impoting data and checking for typoes
 
- ds <- read.csv
+ ds <- read.csv()
 
 unique(ds$Contagious) # everything in order
 unique(ds$Chronic)#everything in order
@@ -347,5 +347,6 @@ print(conf_mat)
 #In conclusion, symptom information is partially predictive of contagiousness but addiotional feaures such as laboratory results, transmission route ecc would be needed 
 
 ```
+
 
 
