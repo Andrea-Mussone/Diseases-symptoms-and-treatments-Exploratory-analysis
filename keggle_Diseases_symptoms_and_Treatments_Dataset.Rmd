@@ -1,0 +1,350 @@
+
+```{r libray, include=FALSE}
+
+library(ggplot2)
+library(tidyverse)
+library(tidytext)
+library(dplyr)
+library(stringr)
+library(scales)
+library(plotly)
+library(nlme)
+library(tm)
+library(Matrix)
+library(glmnet)
+library(caret)
+```
+
+
+```{r import data, include=FALSE}
+
+#impoting data and checking for typoes
+
+ ds <- read.csv("C:/Users/andre/OneDrive - Universität Wien/Desktop/keggle_dataset_treatments/Diseases_Symptoms.csv")
+
+unique(ds$Contagious) # everything in order
+unique(ds$Chronic)#everything in order
+
+```
+
+
+```{r}
+
+#insoecting for NA values 
+
+NA_values <- which(is.na(ds))
+NA_values
+
+#no Na values found
+
+```
+
+
+
+```{r}
+#analysing percentages of contagious diseases in the dataset
+
+table_stat_contagious <- ds %>%
+  select(Contagious)%>%
+  group_by(Contagious) %>%
+  summarise(Number = n()) %>%
+  mutate(Percentage_of_observation = round ((Number)/sum(Number) *100, 1))
+
+table_stat_contagious
+
+dataset_contgious<- as.data.frame(table_stat_contagious)
+
+#72,2 % (292) of the diseases are not contagious, 27,8 % (113) are contagious
+
+#geom bar visualization with ggplot
+
+ggplot(dataset_contgious, aes(x = Contagious, y = Percentage_of_observation, fill = Contagious)) +
+  geom_col(width = 0.4) +
+  geom_text(aes(label = paste0(Percentage_of_observation, "%")), vjust = -0.5) +
+  theme_classic() +
+  scale_fill_manual(values = c("True" = "blue4", "False" = "orange2")) +
+  labs(title = "Contagious diseases listed as True and False",
+       x = "Contagious",
+       y = "Percentage of observations")
+  
+
+```
+
+
+```{r}
+#analysing percentage of chrnoic deseases in the dataset
+
+table_stat_chronic <- ds %>%
+  select(Chronic) %>%
+  group_by(Chronic) %>%
+  summarise(Number = n()) %>%   
+  mutate(Percentage_of_observation = round(Number / sum(Number) * 100, 1))
+
+table_stat_chronic
+
+dataset_chronic <- as.data.frame(table_stat_chronic)
+
+ggplot(dataset_chronic, aes( x = Chronic , y = Percentage_of_observation , fill = Chronic))+
+  geom_col(width = 0.4)+
+  geom_text(aes(label = paste0(Percentage_of_observation, "%")), vjust = -0.5)+
+  theme_classic()+
+  scale_fill_manual(values = c("True" = "blue4", "False" = "orange2" ))+
+  labs(title = "Chronic diseases listed as True and False",
+       x = "Chronic",
+       y = "Percentage of observations")
+              
+
+```
+
+
+```{r}
+#most common diseases
+
+most_common_diseases <- ds %>%
+  count(Name , name = "number_count")%>%
+  slice_max(number_count, n = 10, with_ties = FALSE)
+
+most_common_diseases
+
+ggplot(
+  most_common_diseases,
+  aes(y = reorder(Name, number_count), x = number_count, fill = number_count)
+) +
+  geom_bar(stat = "identity", width = 0.5) +
+  scale_fill_gradient(low = "navy", high = "orange2") +
+  labs(x = "Number of diseases found in patientes", y = "Diseases Names", title = "Most common diseases found") +
+  theme_light() +
+  theme(legend.position = "none")
+                             
+                           
+
+```
+```{r}
+#preparing symptoms data
+
+#analysing symptoms
+#separating values
+
+ds_symptoms_separate <- separate_rows(ds, c(Symptoms), sep = ",", convert = TRUE)
+
+ds_symptoms_separate
+
+#trimming spaces
+
+ds_symptoms_separate$Symptoms <- str_trim(ds_symptoms_separate$Symptoms, side = "both") 
+
+ds_symptoms_separate
+
+#standardize to lower case 
+
+ds_symptoms_separate$Symptoms <- str_to_lower(str_trim(ds_symptoms_separate$Symptoms))
+
+```
+```{r}
+#most common symptoms
+
+most_common_symptoms <- ds_symptoms_separate %>%
+  count(Symptoms , name = "number_count")%>%
+  slice_max(number_count, n = 15, with_ties = FALSE)
+
+most_common_diseases
+
+ggplot(
+  most_common_symptoms,
+  aes(y = reorder(Symptoms, number_count), x = number_count, fill = number_count)
+) +
+  geom_bar(stat = "identity", width = 0.5) +
+  scale_fill_gradient(low = "navy", high = "orange2") +
+  labs(x = "Number of symptoms found in patientes", y = "Symptoms name", title = "Most common symptoms found") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+```{r}
+#preparing Treatments data
+
+#analysing Treatments
+#separating values
+
+ds_treatments_separate <- separate_rows(ds, c(Treatments), sep = ",", convert = TRUE)
+
+ds_treatments_separate
+
+#trimming spaces
+
+ds_treatments_separate$Treatments <- str_trim(ds_treatments_separate$Treatments, side = "both") 
+
+ds_treatments_separate
+
+#standardize to lower case 
+
+ds_treatments_separate$Treatments <- str_to_lower(str_trim(ds_treatments_separate$Treatments))
+```
+
+```{r}
+#most common treatments
+
+most_common_treatments <- ds_treatments_separate %>%
+  count(Treatments , name = "number_count")%>%
+  slice_max(number_count, n = 15, with_ties = FALSE)
+
+most_common_diseases
+
+ggplot(
+  most_common_treatments,
+  aes(y = reorder(Treatments, number_count), x = number_count, fill = number_count)
+) +
+  geom_bar(stat = "identity", width = 0.5) +
+  scale_fill_gradient(low = "navy", high = "orange2") +
+  labs(x = "Number of Treatments performed on patientes", y = "Treatments", title = "Most common Treatments performed") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+```{r}
+#modelling 
+#predicting whether a disease is contagious 
+#first, converting True and False in 0 and 1
+
+ds_symptoms_mutate_model_1 <- ds_symptoms_separate%>%
+  mutate(Contagious = ifelse(Contagious == "False",0,1))
+ds_symptoms_mutate_model_1
+
+#In order to fit the model, I will use the dataset where symptoms are trimmed
+
+binomial.glm.contagious_1 <- glm(Contagious ~ Symptoms, data = ds_symptoms_mutate_model_1, family = binomial)
+summary(binomial.glm.contagious_1)
+
+plot(binomial.glm.contagious_1)
+
+#By trimming symptoms, the model is overfitting because of too many predictors (symptoms)
+```
+
+
+```{r}
+#let's try with another model 
+
+ds_symptoms_mutate_model_2 <- ds%>%
+  mutate(Contagious = ifelse(Contagious == "False",0,1))
+ds_symptoms_mutate_model_2
+
+
+binomial.glm.contagious_2 <- glm(Contagious ~ Symptoms, data = ds_symptoms_mutate_model_2, family = binomial)
+summary(binomial.glm.contagious_2)
+
+# by not trimming there is the opposite problem, there are too little predictors and there is underfitting. 
+```
+
+
+```{r}
+#let's try another approach 
+
+# Making a working copy
+
+df <- ds_symptoms_mutate_model_1 %>%
+  mutate(RowID = row_number())
+
+# Quick checks
+cat("Number of rows:", nrow(df), "\n")
+cat("Any missing Symptoms:", sum(is.na(df$Symptoms)), "\n")
+cat("Any missing Contagious:", sum(is.na(df$Contagious)), "\n\n")
+
+# Preview
+head(df)
+
+#Tokenization and stopword removal.
+
+# Tokenize and remove stopwords
+df_words <- df %>%
+  unnest_tokens(word, Symptoms) %>%  # split Symptoms into words
+  anti_join(stop_words, by = "word") # remove standard English stopwords
+
+# Preview
+head(df_words, 60)
+
+##TF-IDF vectorization
+
+# Compute TF-IDF
+df_tfidf <- df_words %>%
+  count(RowID, word) %>%          # count word frequency per symptom
+  bind_tf_idf(word, RowID, n)     # compute TF-IDF
+
+# Convert to sparse matrix (rows = RowID, columns = words)
+X <- df_tfidf %>%
+  cast_sparse(RowID, word, tf_idf)
+
+# Preview dimensions
+dim(X)
+
+# Align y with X row order
+y <- df %>%
+  filter(RowID %in% as.integer(rownames(X))) %>%
+  arrange(RowID) %>%
+  pull(Contagious)
+
+# Quick check
+length(y)
+table(y)
+
+#Train/Test split (80/20)
+
+set.seed(42)
+
+# 80% training, 20% test
+train_index <- createDataPartition(y, p = 0.8, list = FALSE)
+
+X_train <- X[train_index, ]
+X_test  <- X[-train_index, ]
+
+y_train <- y[train_index]
+y_test  <- y[-train_index]
+
+# Quick check
+
+cat("Training rows:", nrow(X_train), "Test rows:", nrow(X_test), "\n")
+table(y_train)
+table(y_test)
+
+#Fit Logistic Regression
+
+# Fit logistic regression with L2 regularization (alpha=0)
+
+model <- cv.glmnet(
+  X_train, y_train,
+  family = "binomial",
+  alpha = 0,        # ridge = similar to sklearn LogisticRegression default
+  nfolds = 5        # 5-fold cross-validation to select lambda
+)
+
+# Best lambda chosen automatically
+best_lambda <- model$lambda.min
+cat("Best lambda:", best_lambda, "\n")
+
+# Fit final model using best lambda
+final_model <- glmnet(
+  X_train, y_train,
+  family = "binomial",
+  alpha = 0,
+  lambda = best_lambda
+)
+
+# Predict probabilities on test set
+prob <- predict(final_model, newx = X_test, type = "response")
+
+# Convert probabilities to class predictions (0/1)
+y_pred <- ifelse(prob > 0.5, 1, 0)
+
+# Accuracy
+accuracy <- mean(y_pred == y_test)
+cat("Accuracy:", round(accuracy, 3), "\n")
+
+# Confusion matrix
+conf_mat <- confusionMatrix(factor(y_pred), factor(y_test))
+print(conf_mat)
+
+#The model achieved an overall accuracy of 71.4%, demonstrating that symptoms alone carry some predictive information about contagiousness.
+#The model was better at identifying non-contagious diseases (sensitivity = 88.7%) than contagious ones (specificity = 42.5%)
+#In conclusion, symptom information is partially predictive of contagiousness but addiotional feaures such as laboratory results, transmission route ecc would be needed 
+
+```
+
